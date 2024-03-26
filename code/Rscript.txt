@@ -1,0 +1,53 @@
+# load the sub table from BQ
+library(bigrquery)
+bq_projects()
+1
+bq_project_datasets("yhcr-prd-phm-bia-core")
+table<-bq_table_download("yhcr-prd-phm-bia-core.CY_1677_Walshe.sub2", n_max = Inf, page_size = NULL, start_index = 0L, max_connections = 6L, quiet = NA, bigint = c("integer", "integer64", "numeric", "character"))
+
+# load the RData from local
+load("~/sub2.RData")
+
+# load packages
+library(dplyr)
+
+
+# bysort PERSON_ID_HASH: gen n=_n
+# bysort PERSON_ID_HASH: gen N=_N
+library(dplyr)
+table <- table %>%
+  #arrange(date) %>%         # 'arrange' is equivalent to 'sort'
+  group_by(PERSON_ID_HASH) %>%  # 'group_by' is equivalent to 'by'
+  mutate(n = row_number(),  # 'mutate' is sort-of equivalent to 'gen' (or 'replace', if the var already exists)
+         N = n())
+View(table)
+
+# table <- table %>% arrange(ORIG_ORDER_DT_TM)
+
+# tab <- table %>%
+#  ungroup() %>% 
+#  slice_sample(n=200000)
+
+
+library(lubridate)
+library(stringr)
+library(tidyr)
+tab <- table %>%
+  ungroup() %>% 
+  mutate(xx = ymd(str_sub(ORDER_REQUEST_DT_TM, 1, 10)),
+         dif = interval(start = "2017-01-01", end = xx),
+         wk = trunc(as.numeric(dif/604800)),
+         wkStart = ymd("2017-01-01") + wk*7)
+
+sumTab <- tab %>% 
+  group_by(ORIG_ORDERED_BY_PERSONNEL_ID_HASH, wk, wkStart) %>% 
+  summarise(ordersPerWk = n(),
+            patientsPerWk = n_distinct(PERSON_ID_HASH)) %>% 
+  ungroup() %>% 
+  complete(ORIG_ORDERED_BY_PERSONNEL_ID_HASH, nesting(wk, wkStart), fill = list(ordersPerWk = 0, patientsPerWk = 0)) %>% 
+  drop_na()
+
+#sumTab is to be exported Dec 2022 and kept for 6 months
+saveRDS(sumTab, "sumTab.rds")
+write.csv(sumTab, "sumTab.csv") 
+          
